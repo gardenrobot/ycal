@@ -89,18 +89,18 @@ impl Event {
         let description = &self.description;
 
         format!(
-            "BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Ycal//Ycal//EN
-BEGIN:VEVENT
-UID:{}
-DTSTAMP:{}
-DTSTART:{}
-DTEND:{}
-SUMMARY:{}
-DESCRIPTION:{}
-END:VEVENT
-END:VCALENDAR",
+            "BEGIN:VCALENDAR\n\
+            VERSION:2.0\n\
+            PRODID:-//Ycal//Ycal//EN\n\
+            BEGIN:VEVENT\n\
+            UID:{}\n\
+            DTSTAMP:{}\n\
+            DTSTART:{}\n\
+            DTEND:{}\n\
+            SUMMARY:{}\n\
+            DESCRIPTION:{}\n\
+            END:VEVENT\n\
+            END:VCALENDAR",
             uid, dtstamp, dtstart, dtend, summary, description,
         )
     }
@@ -374,18 +374,18 @@ mod tests {
         let ical_str = event.to_ical_str();
         assert_eq!(
             ical_str,
-            "BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Ycal//Ycal//EN
-BEGIN:VEVENT
-UID:e110d27a-1513-40c1-8e8a-db8f50aac1d2
-DTSTAMP:20000205T160000Z
-DTSTART:20000205T100000Z
-DTEND:20000205T140000Z
-SUMMARY:atitle
-DESCRIPTION:adescription
-END:VEVENT
-END:VCALENDAR"
+            "BEGIN:VCALENDAR\n\
+            VERSION:2.0\n\
+            PRODID:-//Ycal//Ycal//EN\n\
+            BEGIN:VEVENT\n\
+            UID:e110d27a-1513-40c1-8e8a-db8f50aac1d2\n\
+            DTSTAMP:20000205T160000Z\n\
+            DTSTART:20000205T100000Z\n\
+            DTEND:20000205T140000Z\n\
+            SUMMARY:atitle\n\
+            DESCRIPTION:adescription\n\
+            END:VEVENT\n\
+            END:VCALENDAR"
         );
     }
 }
