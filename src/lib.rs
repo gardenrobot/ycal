@@ -1,17 +1,14 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
-use caldav::{run_call, CaldavParams};
+use caldav::CaldavParams;
 use chrono::{
     format::{DelayedFormat, StrftimeItems},
-    Date, DateTime, Days, NaiveDate, NaiveDateTime, Utc,
+    DateTime, NaiveDate, NaiveDateTime, Utc,
 };
 use chrono_tz::{self, Tz};
 use regex::Regex;
 use reqwest::{get, Client};
 use serde_json::{from_str, Result as SJResult, Value};
-use std::{
-    borrow::{Borrow, BorrowMut},
-    error::Error,
-};
+use std::{borrow::BorrowMut, error::Error};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
@@ -20,10 +17,6 @@ use crate::caldav::build_create_req;
 pub mod caldav;
 
 const TIMEZONE: Tz = chrono_tz::US::Eastern;
-
-struct Schedule {
-    events: Vec<Event>,
-}
 
 #[derive(PartialEq, Debug)]
 pub struct Event {
@@ -113,43 +106,21 @@ END:VCALENDAR",
     }
 }
 
-pub struct ScheduleParams {
-    date: NaiveDate,
-}
-
 #[derive(PartialEq, Debug)]
-enum Changes {
+pub enum Changes {
     Normal,
     Subbed(String),
     Cancelled,
 }
 
-// https://groupexpro.com/schedule/embed/json_schedule.php?schedule=&instructor_id=true&format=jsonp&a=988&location=5962&studio=&class=&instructor=&start=1716739200&end=1716739200&callback=jQuery3630292337484514272_1716779441505&_=1716779441506
-impl ScheduleParams {
-    pub fn new(date: NaiveDate) -> ScheduleParams {
-        ScheduleParams { date }
-    }
-
-    pub fn start_and_end(&self) -> (i64, i64) {
-        // TODO remove this. we seem to only need the start
-        // date
-        let start = NaiveDateTime::from(self.date.checked_add_days(Days::new(0)).unwrap())
-            .and_local_timezone(TIMEZONE)
-            .unwrap()
-            .timestamp();
-        let end = NaiveDateTime::from(self.date.checked_add_days(Days::new(1)).unwrap())
-            .and_local_timezone(TIMEZONE)
-            .unwrap()
-            .timestamp();
-        (start, end)
-    }
-}
-
 /// Makes an http call based on the params given. Returns a jquery string with event information.
-async fn fetch_schedule(schedule_params: ScheduleParams) -> Result<String, Box<dyn Error>> {
+async fn fetch_schedule(date: NaiveDate) -> Result<String, Box<dyn Error>> {
     let a = "988"; // Likely the org id for the Y
     let location = "5962"; // Waverly
-    let (start, end) = schedule_params.start_and_end();
+    let date_timestamp = NaiveDateTime::from(date)
+        .and_local_timezone(TIMEZONE)
+        .unwrap()
+        .timestamp();
 
     let uri = format!(
         "https://groupexpro.com/schedule/embed/json_schedule.php\
@@ -159,7 +130,7 @@ async fn fetch_schedule(schedule_params: ScheduleParams) -> Result<String, Box<d
         &location={}\
         &start={}\
         &end={}",
-        a, location, start, start
+        a, location, date_timestamp, date_timestamp
     );
     let body = get(uri).await?.text().await?;
     Ok(body)
@@ -249,9 +220,9 @@ fn detect_changes(json: &Value) -> Changes {
 }
 
 /// Take a date, retrieve
-pub fn process_date(schedule_params: ScheduleParams, caldav_params: CaldavParams) -> () {
+pub fn process_date(date: NaiveDate, caldav_params: CaldavParams) -> () {
     let rt = Runtime::new().unwrap();
-    let schedule = fetch_schedule(schedule_params);
+    let schedule = fetch_schedule(date);
     let schedule = rt.block_on(schedule).unwrap();
     let schedule = parse_jquery(&schedule).unwrap();
     let mut event_list = Vec::<Event>::new();
@@ -346,8 +317,8 @@ mod tests {
     fn test_fetch_schedule() {
         let expected = fs::read_to_string("tests/schedule_2024_04_03.json").unwrap();
         let rt = Runtime::new().unwrap();
-        let params = ScheduleParams::new(NaiveDate::from_ymd_opt(2024, 4, 3).unwrap());
-        let result = rt.block_on(fetch_schedule(params));
+        let date = NaiveDate::from_ymd_opt(2024, 4, 3).unwrap();
+        let result = rt.block_on(fetch_schedule(date));
         match result {
             Ok(ref result) => assert_eq!(result, &expected),
             _ => panic!(),
@@ -420,8 +391,8 @@ END:VCALENDAR"
 
     #[test]
     fn test_process_date() {
-        let schedule_params = ScheduleParams::new(NaiveDate::from_ymd(2024, 07, 01));
+        let date = NaiveDate::from_ymd_opt(2024, 07, 01).unwrap();
         let caldav = CaldavParams::new("127.0.0.1:5050", "user", "pass", "cal");
-        process_date(schedule_params, caldav);
+        process_date(date, caldav);
     }
 }

@@ -1,7 +1,4 @@
-use crate::{Changes, Event, TIMEZONE};
-use chrono::{DateTime, Days, NaiveDate, NaiveDateTime};
-use chrono_tz::{self, Tz};
-use core::future::Future;
+use crate::Event;
 use reqwest::{Client, Method, Request, Response, Result};
 use tokio::runtime::Runtime;
 
@@ -70,10 +67,9 @@ pub fn build_delete_event(
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{create_dt, make_event};
+    use super::super::tests::make_event;
     use super::*;
     use std::borrow::BorrowMut;
-    use std::process;
 
     #[test]
     fn test_build_create_req() {

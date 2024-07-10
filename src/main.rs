@@ -1,6 +1,5 @@
 use std::{env, process};
-use ycal::caldav::*;
-use ycal::*;
+use ycal::process_date;
 
 use chrono::NaiveDate;
 use ycal::caldav::CaldavParams;
@@ -19,6 +18,6 @@ fn main() {
             process::exit(1);
         }
         let date = NaiveDate::parse_from_str(&args[2], "%Y-%m-%d").expect("Error parsing date");
-        process_date(ScheduleParams::new(date), caldav_params);
+        process_date(date, caldav_params);
     }
 }
