@@ -3,15 +3,17 @@ use reqwest::{Client, Method, Request, Response, Result};
 use tokio::runtime::Runtime;
 
 pub struct CaldavParams {
-    url: String, // TODO add protocol
+    protocol: String,
+    url: String,
     user: String,
     pass: String,
     calendar: String,
 }
 
 impl CaldavParams {
-    pub fn new(url: &str, user: &str, pass: &str, calendar: &str) -> CaldavParams {
+    pub fn new(protocol: &str, url: &str, user: &str, pass: &str, calendar: &str) -> CaldavParams {
         CaldavParams {
+            protocol: String::from(protocol),
             url: String::from(url),
             user: String::from(user),
             pass: String::from(pass),
@@ -20,18 +22,17 @@ impl CaldavParams {
     }
 
     pub fn cal_url(&self) -> String {
-        let cal_url = format!("http://{}/{}/{}/", self.url, self.user, self.calendar);
-        eprintln!("{cal_url}"); // TODO
-        return cal_url;
+        format!(
+            "{}://{}/{}/{}/",
+            self.protocol, self.url, self.user, self.calendar
+        )
     }
 
     pub fn event_url(&self, event_uid: &str) -> String {
-        let cal_url = format!(
-            "http://{}/{}/{}/{}.ics",
-            self.url, self.user, self.calendar, event_uid
-        );
-        eprintln!("{cal_url}");
-        return cal_url;
+        format!(
+            "{}://{}/{}/{}/{}.ics",
+            self.protocol, self.url, self.user, self.calendar, event_uid
+        )
     }
 }
 
@@ -54,11 +55,7 @@ pub fn run_call(rt: &Runtime, client: &Client, request: Request) -> Result<Respo
     rt.block_on(client.execute(request))
 }
 
-pub fn build_delete_event(
-    client: &Client,
-    event_id: &str,
-    params: &CaldavParams,
-) -> Result<Request> {
+pub fn build_delete_req(client: &Client, params: &CaldavParams, event_id: &str) -> Result<Request> {
     client
         .request(Method::DELETE, params.event_url(event_id))
         .basic_auth(&params.user, Some(&params.pass))
@@ -75,8 +72,9 @@ mod tests {
     fn test_build_create_req() {
         let client = Client::new();
         let mut event = make_event(true);
-        let url = "https://example.com";
-        let params = CaldavParams::new(url, "user", "pass", "cal");
+        let protocol = "https";
+        let url = "example.com";
+        let params = CaldavParams::new(protocol, url, "user", "pass", "cal");
         let request = build_create_req(&client, &params, event.borrow_mut()).unwrap();
 
         let body = r#"BEGIN:VCALENDAR
@@ -91,8 +89,28 @@ SUMMARY:atitle
 DESCRIPTION:adescription
 END:VEVENT
 END:VCALENDAR"#;
-        println!("Expected: {body}");
-        println!("Actual: {}", event.to_ical_str());
+        assert_eq!(request.method(), Method::PUT);
+        assert_eq!(
+            request.url().as_str(),
+            "https://example.com/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
+        );
         assert_eq!(request.body().unwrap().as_bytes().unwrap(), body.as_bytes());
+    }
+
+    #[test]
+    fn test_build_delete_req() {
+        let client = Client::new();
+        let mut event = make_event(true);
+        let protocol = "https";
+        let url = "example.com";
+        let params = CaldavParams::new(protocol, url, "user", "pass", "cal");
+        let request = build_delete_req(&client, &params, &event.uid.unwrap()).unwrap();
+
+        assert_eq!(request.method(), Method::DELETE);
+        assert_eq!(
+            request.url().as_str(),
+            "https://example.com/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
+        );
+        assert!(request.body().is_none());
     }
 }

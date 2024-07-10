@@ -388,11 +388,4 @@ END:VEVENT
 END:VCALENDAR"
         );
     }
-
-    #[test]
-    fn test_process_date() {
-        let date = NaiveDate::from_ymd_opt(2024, 07, 01).unwrap();
-        let caldav = CaldavParams::new("127.0.0.1:5050", "user", "pass", "cal");
-        process_date(date, caldav);
-    }
 }

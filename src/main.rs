@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use ycal::caldav::CaldavParams;
 
 fn main() {
-    let caldav_params = CaldavParams::new("127.0.0.1:5050", "user", "pass", "cal");
+    let caldav_params = CaldavParams::new("http", "127.0.0.1:5050", "user", "pass", "cal");
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
