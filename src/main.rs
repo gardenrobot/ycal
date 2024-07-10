@@ -1,10 +1,9 @@
 use std::{env, process};
-use ycal::*;
 use ycal::caldav::*;
+use ycal::*;
 
 use chrono::NaiveDate;
 use ycal::caldav::CaldavParams;
-
 
 fn main() {
     let caldav_params = CaldavParams::new("127.0.0.1:5050", "user", "pass", "cal");

@@ -1,8 +1,8 @@
-use chrono::{DateTime, NaiveDateTime, NaiveDate, Days};
+use crate::{Changes, Event, TIMEZONE};
+use chrono::{DateTime, Days, NaiveDate, NaiveDateTime};
 use chrono_tz::{self, Tz};
-use reqwest::{Result, Response, Client, Method, Request};
-use crate::{Event, TIMEZONE, Changes};
 use core::future::Future;
+use reqwest::{Client, Method, Request, Response, Result};
 use tokio::runtime::Runtime;
 
 pub struct CaldavParams {
@@ -29,16 +29,24 @@ impl CaldavParams {
     }
 
     pub fn event_url(&self, event_uid: &str) -> String {
-        let cal_url = format!("http://{}/{}/{}/{}.ics", self.url, self.user, self.calendar, event_uid);
+        let cal_url = format!(
+            "http://{}/{}/{}/{}.ics",
+            self.url, self.user, self.calendar, event_uid
+        );
         eprintln!("{cal_url}");
         return cal_url;
     }
 }
 
 /// Build a request to create an event.
-pub fn build_create_req(client: &Client, params: &CaldavParams, event: &mut Event) -> Result<Request> {
+pub fn build_create_req(
+    client: &Client,
+    params: &CaldavParams,
+    event: &mut Event,
+) -> Result<Request> {
     event.populate();
-    client.request(Method::PUT, params.event_url(event.uid.as_ref().unwrap()))
+    client
+        .request(Method::PUT, params.event_url(event.uid.as_ref().unwrap()))
         .body(event.to_ical_str())
         .header("Content-Type", "text/calendar")
         .basic_auth(&params.user, Some(&params.pass))
@@ -49,16 +57,21 @@ pub fn run_call(rt: &Runtime, client: &Client, request: Request) -> Result<Respo
     rt.block_on(client.execute(request))
 }
 
-pub fn build_delete_event(client: &Client, event_id: &str, params: &CaldavParams) -> Result<Request> {
-    client.request(Method::DELETE, params.event_url(event_id))
+pub fn build_delete_event(
+    client: &Client,
+    event_id: &str,
+    params: &CaldavParams,
+) -> Result<Request> {
+    client
+        .request(Method::DELETE, params.event_url(event_id))
         .basic_auth(&params.user, Some(&params.pass))
         .build()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tests::{create_dt, make_event};
+    use super::*;
     use std::borrow::BorrowMut;
     use std::process;
 
