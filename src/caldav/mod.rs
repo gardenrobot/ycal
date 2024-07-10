@@ -1,7 +1,9 @@
 use crate::Event;
 use reqwest::{Client, Method, Request, Response, Result};
+use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CaldavParams {
     protocol: String,
     url: String,
@@ -33,6 +35,18 @@ impl CaldavParams {
             "{}://{}/{}/{}/{}.ics",
             self.protocol, self.url, self.user, self.calendar, event_uid
         )
+    }
+}
+
+impl ::std::default::Default for CaldavParams {
+    fn default() -> Self {
+        Self {
+            protocol: String::from("https"),
+            url: String::from("example.com"),
+            user: String::from("user"),
+            pass: String::from("pass"),
+            calendar: String::from("cal"),
+        }
     }
 }
 
@@ -100,7 +114,7 @@ END:VCALENDAR"#;
     #[test]
     fn test_build_delete_req() {
         let client = Client::new();
-        let mut event = make_event(true);
+        let event = make_event(true);
         let protocol = "https";
         let url = "example.com";
         let params = CaldavParams::new(protocol, url, "user", "pass", "cal");

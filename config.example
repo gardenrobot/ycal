@@ -1,0 +1,5 @@
+protocol = "https"
+url = "example.com"
+user = "user"
+pass = "pass"
+calendar = "cal"

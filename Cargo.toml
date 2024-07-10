@@ -19,3 +19,5 @@ rustydav = { path = "../rustydav" }
 http = "1.1.0"
 uuid = { version = "1.9.1", features = ["v4"] }
 base64 = "0.22.1"
+confy = "0.6.1"
+serde = "1.0.204"

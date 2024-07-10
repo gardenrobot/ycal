@@ -2,10 +2,10 @@ use std::{env, process};
 use ycal::process_date;
 
 use chrono::NaiveDate;
-use ycal::caldav::CaldavParams;
+use confy;
 
 fn main() {
-    let caldav_params = CaldavParams::new("http", "127.0.0.1:5050", "user", "pass", "cal");
+    let caldav_params = confy::load_path("config").expect("Error reading config");
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
