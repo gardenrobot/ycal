@@ -1,5 +1,5 @@
-use crate::Event;
-use chrono::Days;
+use crate::{Changes, Event};
+use chrono::{DateTime, Days};
 use chrono::{NaiveDate, NaiveDateTime};
 use reqwest::{Client, Method, Request, Response, Result};
 use serde::{Deserialize, Serialize};
@@ -77,38 +77,38 @@ pub fn build_list_req(
         .and_utc()
         .format("%Y%m%dT%H%M%SZ");
     let body = format!(
-        r#"<?xml version="1.0" encoding="utf-8" ?>\n\
-          <C:calendar-query xmlns:D="DAV:"\n\
-               xmlns:C="urn:ietf:params:xml:ns:caldav">\n\
-           <D:prop>\n\
-             <D:getetag/>\n\
-             <C:calendar-data>\n\
-               <C:comp name="VCALENDAR">\n\
-                 <C:prop name="VERSION"/>\n\
-                 <C:comp name="VEVENT">\n\
-                   <C:prop name="SUMMARY"/>\n\
-                   <C:prop name="UID"/>\n\
-                   <C:prop name="DTSTART"/>\n\
-                   <C:prop name="DTEND"/>\n\
-                   <C:prop name="DURATION"/>\n\
-                   <C:prop name="RRULE"/>\n\
-                   <C:prop name="RDATE"/>\n\
-                   <C:prop name="EXRULE"/>\n\
-                   <C:prop name="EXDATE"/>\n\
-                   <C:prop name="RECURRENCE-ID"/>\n\
-                 </C:comp>\n\
-                 <C:comp name="VTIMEZONE"/>\n\
-               </C:comp>\n\
-             </C:calendar-data>\n\
-           </D:prop>\n\
-           <C:filter>\n\
-             <C:comp-filter name="VCALENDAR">\n\
-               <C:comp-filter name="VEVENT">\n\
-                 <C:time-range start="{}"\n\
-                               end="{}"/>\n\
-               </C:comp-filter>\n\
-             </C:comp-filter>\n\
-           </C:filter>\n\
+        r#"<?xml version="1.0" encoding="utf-8" ?>
+          <C:calendar-query xmlns:D="DAV:"
+               xmlns:C="urn:ietf:params:xml:ns:caldav">
+           <D:prop>
+             <D:getetag/>
+             <C:calendar-data>
+               <C:comp name="VCALENDAR">
+                 <C:prop name="VERSION"/>
+                 <C:comp name="VEVENT">
+                   <C:prop name="SUMMARY"/>
+                   <C:prop name="UID"/>
+                   <C:prop name="DTSTART"/>
+                   <C:prop name="DTEND"/>
+                   <C:prop name="DURATION"/>
+                   <C:prop name="RRULE"/>
+                   <C:prop name="RDATE"/>
+                   <C:prop name="EXRULE"/>
+                   <C:prop name="EXDATE"/>
+                   <C:prop name="RECURRENCE-ID"/>
+                 </C:comp>
+                 <C:comp name="VTIMEZONE"/>
+               </C:comp>
+             </C:calendar-data>
+           </D:prop>
+           <C:filter>
+             <C:comp-filter name="VCALENDAR">
+               <C:comp-filter name="VEVENT">
+                 <C:time-range start="{}"
+                               end="{}"/>
+               </C:comp-filter>
+             </C:comp-filter>
+           </C:filter>
           </C:calendar-query>"#,
         start, end
     );
@@ -133,6 +133,121 @@ pub fn build_delete_req(client: &Client, params: &CaldavParams, event_id: &str) 
         .build()
 }
 
+use serde_xml_rs;
+
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct XMLMultiStatus {
+    response: Option<Vec<XMLResponse>>
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct XMLResponse {
+    href: String,
+    propstat: XMLPropstat,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct XMLPropstat {
+    prop: XMLProp,
+    status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct XMLProp {
+    getetag: String,
+    #[serde(rename = "calendar-data")]
+    calendarData: String,
+}
+
+fn parse_event_list(
+    xml: &str
+) -> Vec<Event> {
+    /* Takes a caldav XML string and parses it to Events.
+     */
+    let xml: XMLMultiStatus = serde_xml_rs::from_str(&xml).unwrap();
+    let mut list= Vec::new();
+    match xml.response.as_ref() {
+        Some(response) => {
+            for eventData in response {
+                let event = parse_event(eventData.propstat.prop.calendarData.as_ref());
+                list.push(event);
+            }
+            list
+        },
+        None => Vec::new()
+    }
+}
+
+use ical;
+use std::borrow::Borrow;
+use std::io::BufReader;
+
+use std::fs::File;
+
+fn parse_event(
+    event: &str
+) -> Event {
+    /* Parse an ical event string into an Event.
+     */
+    let properties: ical::PropertyParser<&[u8]> = ical::PropertyParser::from_reader(event.as_bytes());
+
+    // TODO have better checking here.
+    let mut start_datetime = None;
+    let mut end_datetime = None;
+    let mut title = Some(String::new());
+    let mut description = Some(String::new());
+    let mut changes = Some(Changes::Normal);
+    let mut studio = Some("TODO".to_string());
+    let mut category = Some("TODO".to_string());
+    let mut branch = Some("TODO".to_string());
+    let mut uid = None;
+    let mut stamp = None;
+
+    for property in properties {
+        let property = property.unwrap();
+        let mut property_value = property.value.unwrap();
+
+        match property.name.as_str() {
+            "DTSTART" => start_datetime = {
+                Some(NaiveDateTime::parse_from_str(&property_value, "%Y%m%dT%H%M%SZ").unwrap().and_local_timezone(super::TIMEZONE).single().unwrap())
+            },
+            "DTEND" => end_datetime = {
+                Some(NaiveDateTime::parse_from_str(&property_value, "%Y%m%dT%H%M%SZ").unwrap().and_local_timezone(super::TIMEZONE).single().unwrap())
+            },
+            "SUMMARY" => title = Some(property_value.clone()),
+            "UID" => uid = Some(property_value.clone()),
+            "DTSTAMP" => stamp = {
+                Some(NaiveDateTime::parse_from_str(&property_value, "%Y%m%dT%H%M%SZ").unwrap().and_utc())
+            },
+            "LOCATION" => {
+                let mut split = property_value.split(", ");
+                studio = split.next().map(String::from);
+                branch = split.next().map(String::from);
+            },
+            "DESCRIPTION" => {
+                let mut split = property_value.split("\\n");
+                category = split.next().map(String::from);
+                description = split.next().map(String::from);
+            },
+            _ => (),
+        }
+    }
+
+    Event::new(
+        start_datetime.unwrap(),
+        end_datetime.unwrap(),
+        &title.unwrap(),
+        &description.unwrap(),
+        changes.unwrap(),
+        &studio.unwrap(),
+        &category.unwrap(),
+        &branch.unwrap(),
+        Some(uid.unwrap()),
+        Some(stamp.unwrap()),
+    )
+}
+
 pub fn list_events_by_date(
     rt: &Runtime,
     client: &Client,
@@ -145,9 +260,15 @@ pub fn list_events_by_date(
         build_list_req(client, &caldav_params, date).unwrap(),
     )
     .unwrap();
-    println!("{}", response.status());
-    println!("{}", rt.block_on(response.text()).unwrap());
-    Vec::<String>::new()
+    let text = rt.block_on(response.text()).unwrap();
+    println!("BEEP01 {}", &text);
+    let xml: XMLMultiStatus = serde_xml_rs::from_str(&text).unwrap();
+    println!("BEEP02 {}", &xml.response.unwrap()[0].propstat.prop.calendarData);
+
+    let event_ids = Vec::<String>::new();
+
+
+    event_ids
 }
 
 #[cfg(test)]
@@ -214,5 +335,39 @@ mod tests {
 
         assert_eq!(request.method().as_str(), "REPORT");
         assert_eq!(request.url().as_str(), "https://example.com/user/cal/");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_list_events_by_date() {
+        let client = Client::new();
+        let caldav_params = CaldavParams::new("http", "127.0.0.1:5232", "user", "pass", "cal");
+        let rt = Runtime::new().unwrap();
+        let date = NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
+        list_events_by_date(&rt, &client, caldav_params, date);
+    }
+
+    #[test]
+    fn test_parse_event_list() {
+        let mut expected_event_list = Vec::new();
+        expected_event_list.push(make_event(true));
+        let xml = "<multistatus xmlns=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><response><href>/user/cal/583ac737-44c2-4655-a8a7-048519741f54.ics</href><propstat><prop><getetag>\"85f0997add25f4f9bb682115f6911f0288c6e1988408809e62fcf1ba4d288503\"</getetag><C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Ycal//Ycal//EN
+BEGIN:VEVENT
+UID:e110d27a-1513-40c1-8e8a-db8f50aac1d2
+DTSTART:20000205T050000Z
+DTEND:20000205T090000Z
+DESCRIPTION:acategory\\nadescription
+DTSTAMP:20000205T160000Z
+LOCATION:astudio, abranch
+SUMMARY:atitle
+END:VEVENT
+END:VCALENDAR
+</C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>
+";
+
+        let event_list = parse_event_list(xml);
+        assert_eq!(event_list, expected_event_list);
     }
 }

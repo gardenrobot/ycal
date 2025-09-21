@@ -21,3 +21,6 @@ uuid = { version = "1.9.1", features = ["v4"] }
 base64 = "0.22.1"
 confy = "0.6.1"
 serde = "1.0.204"
+quick-xml = "0.36.0"
+serde-xml-rs = "0.6.0"
+ical = "0.11.0"
