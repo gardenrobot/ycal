@@ -12,7 +12,7 @@ use std::{borrow::BorrowMut, error::Error};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-use crate::caldav::build_create_req;
+use crate::caldav::{build_create_req, build_delete_req, list_events_by_date};
 
 pub mod caldav;
 
@@ -78,6 +78,8 @@ impl Event {
         }
     }
 
+    // TODO implement proper ical character escaping
+    // see https://www.kanzaki.com/docs/ical/text.html
     pub fn to_ical_str(&mut self) -> String {
         self.populate();
 
@@ -86,7 +88,10 @@ impl Event {
         let dtend = tz_dt_to_ical(self.end_datetime);
         let dtstamp = utc_dt_to_ical(self.stamp.unwrap());
         let summary = &self.title;
+        let category = &self.category;
         let description = &self.description;
+        let studio = &self.studio;
+        let branch = &self.branch;
 
         format!(
             "BEGIN:VCALENDAR\n\
@@ -98,10 +103,11 @@ impl Event {
             DTSTART:{}\n\
             DTEND:{}\n\
             SUMMARY:{}\n\
-            DESCRIPTION:{}\n\
+            DESCRIPTION:{}\\n{}\n\
+            LOCATION:{}\\, {}\n\
             END:VEVENT\n\
             END:VCALENDAR",
-            uid, dtstamp, dtstart, dtend, summary, description,
+            uid, dtstamp, dtstart, dtend, summary, category, description, studio, branch
         )
     }
 }
@@ -219,9 +225,14 @@ fn detect_changes(json: &Value) -> Changes {
     }
 }
 
-/// Take a date, retrieve
-pub fn process_date(date: NaiveDate, caldav_params: CaldavParams) -> () {
+/**
+ * For a given date, retrieve the date's events. Delete caldav events in that day. Repopulate caldav.
+ */
+pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) -> () {
     let rt = Runtime::new().unwrap();
+    let client = Client::new();
+
+    // Fetch Y events
     let schedule = fetch_schedule(date);
     let schedule = rt.block_on(schedule).unwrap();
     let schedule = parse_jquery(&schedule).unwrap();
@@ -232,11 +243,24 @@ pub fn process_date(date: NaiveDate, caldav_params: CaldavParams) -> () {
         event_list.push(event);
     }
 
-    let client = Client::new();
+    // Delete caldav events
+    let events_to_delete = list_events_by_date(&rt, &client, &caldav_params, date);
+    for event_to_delete in events_to_delete {
+        let event_id = &event_to_delete.uid.unwrap();
+        let request = build_delete_req(&client, caldav_params, event_id)
+            .expect("Error build delete request");
+        println!("Deleting event {event_id}");
+        let response = caldav::run_call(&rt, &client, request).unwrap();
+        let status = response.status();
+        println!("Response: {status}");
+    }
+
+    // Create caldav events
     for mut event in event_list {
         println!("Pushing event");
         let request = build_create_req(&client, &caldav_params, event.borrow_mut())
             .expect("Error building create request");
+        println!("Creating event");
         let response = caldav::run_call(&rt, &client, request).unwrap();
         let status = response.status();
         println!("Response: {status}");
@@ -326,6 +350,14 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn test_process_date() {
+        let caldav_params = CaldavParams::new("http", "127.0.0.1:5232", "user", "pass", "cal");
+        let date = NaiveDate::parse_from_str("2025-01-01", "%Y-%m-%d").expect("Error parsing date");
+        process_date(date, &caldav_params);
+    }
+
+    #[test]
     fn test_detect_changes_subbed() {
         let json: Value = from_str(r#"[
             "", "", "",
@@ -383,7 +415,8 @@ mod tests {
             DTSTART:20000205T100000Z\n\
             DTEND:20000205T140000Z\n\
             SUMMARY:atitle\n\
-            DESCRIPTION:adescription\n\
+            DESCRIPTION:acategory\\nadescription\n\
+            LOCATION:astudio\\, abranch\n\
             END:VEVENT\n\
             END:VCALENDAR"
         );

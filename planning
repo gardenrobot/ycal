@@ -1,0 +1,21 @@
+how to manage multiple calendars?
+
+eventually:
+persistent data stores the needed calendars and their filters. that can be modified by another service.
+
+near term:
+hardcode the needed filters.
+
+for now:
+don't filter at all and use one calendar.
+
+at a regular interval (cron), fetch data for this day and X days in advance. compare it to state of the existing calendar.
+
+comparison eventual:
+there is no uuid. for any day, pull the events from the data and the caldav. if there is any difference, calculate the needed deletes and adds. apply those to the caldav.
+
+comparison near term:
+for any day, if there is any difference, nuke the caldav day and add all events again.
+
+comparison:
+for any day, nuke all caldav events and recreate

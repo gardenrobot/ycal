@@ -114,7 +114,7 @@ pub fn build_list_req(
     );
 
     client
-        .request(Method::from_bytes(b"REPORT").unwrap(), params.cal_url())
+        .request(Method::from_bytes(b"GET").unwrap(), params.cal_url())
         .body(body)
         .header("Content-Type", "text/xml")
         .header("Depth", "1")
@@ -160,23 +160,24 @@ struct XMLProp {
     calendarData: String,
 }
 
+/**
+ * Takes an ical string and parses it to Events.
+ */
 fn parse_event_list(
-    xml: &str
+    event_list_str: &str
 ) -> Vec<Event> {
-    /* Takes a caldav XML string and parses it to Events.
-     */
-    let xml: XMLMultiStatus = serde_xml_rs::from_str(&xml).unwrap();
-    let mut list= Vec::new();
-    match xml.response.as_ref() {
-        Some(response) => {
-            for eventData in response {
-                let event = parse_event(eventData.propstat.prop.calendarData.as_ref());
-                list.push(event);
-            }
-            list
-        },
-        None => Vec::new()
+
+    let mut event_list= Vec::new();
+
+    let event_list_str = event_list_str.split_inclusive("BEGIN:VEVENT");
+    
+    for event_str in event_list_str {
+        if event_str.contains("END:VEVENT") {
+            let event = parse_event(event_str);
+            event_list.push(event);
+        }
     }
+    event_list
 }
 
 use ical;
@@ -221,14 +222,14 @@ fn parse_event(
                 Some(NaiveDateTime::parse_from_str(&property_value, "%Y%m%dT%H%M%SZ").unwrap().and_utc())
             },
             "LOCATION" => {
-                let mut split = property_value.split(", ");
-                studio = split.next().map(String::from);
-                branch = split.next().map(String::from);
+                let split = property_value.split_at(property_value.find("\\, ").unwrap());
+                studio = Some(String::from(split.0));
+                branch = Some(String::from(&split.1[3..]));
             },
             "DESCRIPTION" => {
-                let mut split = property_value.split("\\n");
-                category = split.next().map(String::from);
-                description = split.next().map(String::from);
+                let split = property_value.split_at(property_value.find("\\n").unwrap());
+                category = Some(String::from(split.0));
+                description = Some(String::from(&split.1[2..]));
             },
             _ => (),
         }
@@ -251,24 +252,21 @@ fn parse_event(
 pub fn list_events_by_date(
     rt: &Runtime,
     client: &Client,
-    caldav_params: CaldavParams,
+    caldav_params: &CaldavParams,
     date: NaiveDate,
-) -> Vec<String> {
+) -> Vec<Event> {
+    let req = build_list_req(client, &caldav_params, date).unwrap();
     let response = run_call(
         rt,
         &client,
-        build_list_req(client, &caldav_params, date).unwrap(),
+        req,
     )
     .unwrap();
     let text = rt.block_on(response.text()).unwrap();
-    println!("BEEP01 {}", &text);
-    let xml: XMLMultiStatus = serde_xml_rs::from_str(&text).unwrap();
-    println!("BEEP02 {}", &xml.response.unwrap()[0].propstat.prop.calendarData);
 
-    let event_ids = Vec::<String>::new();
+    let events = parse_event_list(&text);
 
-
-    event_ids
+    events
 }
 
 #[cfg(test)]
@@ -296,7 +294,8 @@ mod tests {
             DTSTART:20000205T100000Z\n\
             DTEND:20000205T140000Z\n\
             SUMMARY:atitle\n\
-            DESCRIPTION:adescription\n\
+            DESCRIPTION:acategory\\nadescription\n\
+            LOCATION:astudio\\, abranch\n\
             END:VEVENT\n\
             END:VCALENDAR";
         assert_eq!(request.method(), Method::PUT);
@@ -333,7 +332,7 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
         let request = build_list_req(&client, &params, date).unwrap();
 
-        assert_eq!(request.method().as_str(), "REPORT");
+        assert_eq!(request.method().as_str(), "GET");
         assert_eq!(request.url().as_str(), "https://example.com/user/cal/");
     }
 
@@ -344,14 +343,16 @@ mod tests {
         let caldav_params = CaldavParams::new("http", "127.0.0.1:5232", "user", "pass", "cal");
         let rt = Runtime::new().unwrap();
         let date = NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
-        list_events_by_date(&rt, &client, caldav_params, date);
+        let event_list = list_events_by_date(&rt, &client, &caldav_params, date);
+        let mut expected_event_list = Vec::new(); // TODO
+        assert_eq!(event_list, expected_event_list);
     }
 
     #[test]
     fn test_parse_event_list() {
         let mut expected_event_list = Vec::new();
         expected_event_list.push(make_event(true));
-        let xml = "<multistatus xmlns=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><response><href>/user/cal/583ac737-44c2-4655-a8a7-048519741f54.ics</href><propstat><prop><getetag>\"85f0997add25f4f9bb682115f6911f0288c6e1988408809e62fcf1ba4d288503\"</getetag><C:calendar-data>BEGIN:VCALENDAR
+        let event_list_str = "BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Ycal//Ycal//EN
 BEGIN:VEVENT
@@ -360,14 +361,12 @@ DTSTART:20000205T050000Z
 DTEND:20000205T090000Z
 DESCRIPTION:acategory\\nadescription
 DTSTAMP:20000205T160000Z
-LOCATION:astudio, abranch
+LOCATION:astudio\\, abranch
 SUMMARY:atitle
 END:VEVENT
-END:VCALENDAR
-</C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>
-";
+END:VCALENDAR";
 
-        let event_list = parse_event_list(xml);
+        let event_list = parse_event_list(event_list_str);
         assert_eq!(event_list, expected_event_list);
     }
 }
