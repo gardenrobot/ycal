@@ -60,6 +60,27 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
-        }
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Process 2025-01-01",
+            "cargo": {
+                "args": [
+                    "run",
+                    "--bin=ycal",
+                    "--package=ycal"
+                ],
+                "filter": {
+                    "name": "ycal",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "process",
+                "2025-01-01",
+            ],
+            "cwd": "${workspaceFolder}"
+        },
     ]
 }

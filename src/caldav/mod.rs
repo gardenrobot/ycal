@@ -9,16 +9,18 @@ use tokio::runtime::Runtime;
 pub struct CaldavParams {
     protocol: String,
     url: String,
+    port: u32,
     user: String,
     pass: String,
     calendar: String,
 }
 
 impl CaldavParams {
-    pub fn new(protocol: &str, url: &str, user: &str, pass: &str, calendar: &str) -> CaldavParams {
+    pub fn new(protocol: &str, url: &str, port: u32, user: &str, pass: &str, calendar: &str) -> CaldavParams {
         CaldavParams {
             protocol: String::from(protocol),
             url: String::from(url),
+            port: port.clone(),
             user: String::from(user),
             pass: String::from(pass),
             calendar: String::from(calendar),
@@ -27,15 +29,15 @@ impl CaldavParams {
 
     pub fn cal_url(&self) -> String {
         format!(
-            "{}://{}/{}/{}/",
-            self.protocol, self.url, self.user, self.calendar
+            "{}://{}:{}/{}/{}/",
+            self.protocol, self.url, self.port, self.user, self.calendar
         )
     }
 
     pub fn event_url(&self, event_uid: &str) -> String {
         format!(
-            "{}://{}/{}/{}/{}.ics",
-            self.protocol, self.url, self.user, self.calendar, event_uid
+            "{}://{}:{}/{}/{}/{}.ics",
+            self.protocol, self.url, self.port, self.user, self.calendar, event_uid
         )
     }
 }
@@ -45,6 +47,7 @@ impl ::std::default::Default for CaldavParams {
         Self {
             protocol: String::from("https"),
             url: String::from("example.com"),
+            port: 80,
             user: String::from("user"),
             pass: String::from("pass"),
             calendar: String::from("cal"),
@@ -300,7 +303,7 @@ mod tests {
         let mut event = make_event(true);
         let protocol = "https";
         let url = "example.com";
-        let params = CaldavParams::new(protocol, url, "user", "pass", "cal");
+        let params = CaldavParams::new(protocol, url, 80, "user", "pass", "cal");
         let request = build_create_req(&client, &params, event.borrow_mut()).unwrap();
 
         let body = 
@@ -331,7 +334,7 @@ mod tests {
         let event = make_event(true);
         let protocol = "https";
         let url = "example.com";
-        let params = CaldavParams::new(protocol, url, "user", "pass", "cal");
+        let params = CaldavParams::new(protocol, url, 80, "user", "pass", "cal");
         let request = build_delete_req(&client, &params, &event.uid.unwrap()).unwrap();
 
         assert_eq!(request.method(), Method::DELETE);
@@ -347,19 +350,19 @@ mod tests {
         let client = Client::new();
         let protocol = "https";
         let url = "example.com";
-        let params = CaldavParams::new(protocol, url, "user", "pass", "cal");
+        let params = CaldavParams::new(protocol, url, 80, "user", "pass", "cal");
         let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
         let request = build_list_req(&client, &params, date).unwrap();
 
         assert_eq!(request.method().as_str(), "GET");
-        assert_eq!(request.url().as_str(), "https://example.com/user/cal/");
+        assert_eq!(request.url().as_str(), "https://example.com:80/user/cal/");
     }
 
     #[test]
     #[ignore]
     fn test_list_events_by_date() {
         let client = Client::new();
-        let caldav_params = CaldavParams::new("http", "127.0.0.1:5232", "user", "pass", "cal");
+        let caldav_params = CaldavParams::new("http", "127.0.0.1", 5323, "user", "pass", "cal");
         let rt = Runtime::new().unwrap();
         let date = NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
         let event_list = list_events_by_date(&rt, &client, &caldav_params, date);

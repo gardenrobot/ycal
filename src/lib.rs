@@ -352,7 +352,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_process_date() {
-        let caldav_params = CaldavParams::new("http", "127.0.0.1:5232", "user", "pass", "cal");
+        let caldav_params = CaldavParams::new("http", "127.0.0.1", 5232, "user", "pass", "cal");
         let date = NaiveDate::parse_from_str("2025-01-01", "%Y-%m-%d").expect("Error parsing date");
         process_date(date, &caldav_params);
     }

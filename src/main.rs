@@ -14,7 +14,7 @@ fn main() {
         eprintln!("Need at least 1 arg.");
         process::exit(1);
     };
-    if args[1] == "create" {
+    if args[1] == "process" {
         if args.len() < 3 {
             eprintln!("Create needs at least 2 args.");
             process::exit(1);
@@ -30,12 +30,5 @@ fn main() {
         let client = Client::new();
         let date = NaiveDate::parse_from_str(&args[2], "%Y-%m-%d").expect("Error parsing date");
         list_events_by_date(&rt, &client, &caldav_params, date);
-    } else if args[1] == "recreate" {
-        if args.len() < 3 {
-            eprintln!("Recreate needs 1 arg.");
-            process::exit(1);
-        }
-        let date = NaiveDate::parse_from_str(&args[2], "%Y-%m-%d").expect("Error parsing date");
-        let client = Client::new();
     }
 }
