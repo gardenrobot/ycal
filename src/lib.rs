@@ -12,7 +12,7 @@ use std::{borrow::BorrowMut, error::Error};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-use crate::caldav::{build_create_req, build_delete_req, list_events_by_date};
+use crate::caldav::{build_create_req, build_delete_req, escape_ical_value, list_events_by_date};
 
 pub mod caldav;
 
@@ -78,8 +78,6 @@ impl Event {
         }
     }
 
-    // TODO implement proper ical character escaping
-    // see https://www.kanzaki.com/docs/ical/text.html
     pub fn to_ical_str(&mut self) -> String {
         self.populate();
 
@@ -103,11 +101,13 @@ impl Event {
             DTSTART:{}\n\
             DTEND:{}\n\
             SUMMARY:{}\n\
-            DESCRIPTION:{}\\n{}\n\
-            LOCATION:{}\\, {}\n\
+            DESCRIPTION:{}\n\
+            LOCATION:{}\n\
             END:VEVENT\n\
             END:VCALENDAR",
-            uid, dtstamp, dtstart, dtend, summary, category, description, studio, branch
+            uid, dtstamp, dtstart, dtend, summary,
+            escape_ical_value(&format!("{category}\n{description}")),
+            escape_ical_value(&format!("{studio}, {branch}")),
         )
     }
 }

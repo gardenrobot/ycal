@@ -182,6 +182,7 @@ fn parse_event_list(
 
 use ical;
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::io::BufReader;
 
 use std::fs::File;
@@ -267,6 +268,24 @@ pub fn list_events_by_date(
     let events = parse_event_list(&text);
 
     events
+}
+
+pub fn escape_ical_value(value: &str) -> String {
+    let mut escaped = String::from("");
+    for (index, character) in value.chars().enumerate() {
+        let escape_map: HashMap<char, &str> = [
+            (',', "\\,"),
+            (';', "\\;"),
+            ('\\', "\\\\"),
+            ('\n', "\\n"),
+        ].iter().cloned().collect();
+        if escape_map.contains_key(&character) {
+            escaped.push_str(escape_map[&character]);
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]
@@ -369,4 +388,14 @@ END:VCALENDAR";
         let event_list = parse_event_list(event_list_str);
         assert_eq!(event_list, expected_event_list);
     }
+
+    #[test]
+    fn test_escape_ical_value() {
+        let value = "New York City, NY; USA\\ \nnewline";
+        assert_eq!(
+            escape_ical_value(value),
+            "New York City\\, NY\\; USA\\\\ \\nnewline"
+        );
+    }
 }
+
