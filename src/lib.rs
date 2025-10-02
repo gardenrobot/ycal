@@ -1,8 +1,7 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use caldav::CaldavParams;
 use chrono::{
-    format::{DelayedFormat, StrftimeItems},
-    DateTime, NaiveDate, NaiveDateTime, Utc,
+    format::{DelayedFormat, StrftimeItems}, DateTime, Days, NaiveDate, NaiveDateTime, Utc
 };
 use chrono_tz::{self, Tz};
 use regex::Regex;
@@ -253,14 +252,16 @@ pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) -> () {
 
     // Delete caldav events
     let events_to_delete = list_events_by_date(&rt, &client, &caldav_params, date);
-    for event_to_delete in events_to_delete {
-        let event_id = &event_to_delete.uid.unwrap();
-        let request = build_delete_req(&client, caldav_params, event_id)
-            .expect("Error build delete request");
-        println!("Deleting event {event_id}");
-        let response = caldav::run_call(&rt, &client, request).unwrap();
-        let status = response.status();
-        println!("Response: {status}");
+    for event in events_to_delete {
+        if event.start_datetime.date_naive() == date {
+            let event_id = &event.uid.unwrap();
+            let request = build_delete_req(&client, caldav_params, event_id)
+                .expect("Error build delete request");
+            println!("Deleting event {event_id}");
+            let response = caldav::run_call(&rt, &client, request).unwrap();
+            let status = response.status();
+            println!("Response: {status}");
+        }
     }
 
     // Create caldav events

@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(request.method(), Method::PUT);
         assert_eq!(
             request.url().as_str(),
-            "https://example.com/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
+            "https://example.com:80/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
         );
         assert_eq!(request.body().unwrap().as_bytes().unwrap(), body.as_bytes());
     }
@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(request.method(), Method::DELETE);
         assert_eq!(
             request.url().as_str(),
-            "https://example.com/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
+            "https://example.com:80/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
         );
         assert!(request.body().is_none());
     }

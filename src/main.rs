@@ -20,6 +20,7 @@ fn main() {
             process::exit(1);
         }
         let date = NaiveDate::parse_from_str(&args[2], "%Y-%m-%d").expect("Error parsing date");
+        println!("Processing {}", date);
         process_date(date, &caldav_params);
     } else if args[1] == "list" {
         if args.len() < 3 {
