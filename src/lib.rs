@@ -12,7 +12,7 @@ use std::{borrow::BorrowMut, error::Error};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-use crate::caldav::{build_create_req, build_delete_req, escape_ical_value, list_events_by_date};
+use crate::caldav::{build_create_calendar_req, build_create_req, build_delete_req, escape_ical_value, list_events_by_date};
 
 pub mod caldav;
 
@@ -242,6 +242,14 @@ pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) -> () {
         println!("Found event");
         event_list.push(event);
     }
+
+    // Create calendar if it doesn't exist
+    let request = build_create_calendar_req(&client, &caldav_params)
+        .expect("Error build create calendar request");
+    println!("Creating calendar {}", &caldav_params.cal_url());
+    let response = caldav::run_call(&rt, &client, request).unwrap();
+    let status = response.status();
+    println!("Response: {status}");
 
     // Delete caldav events
     let events_to_delete = list_events_by_date(&rt, &client, &caldav_params, date);

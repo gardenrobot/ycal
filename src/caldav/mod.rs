@@ -291,6 +291,30 @@ pub fn escape_ical_value(value: &str) -> String {
     escaped
 }
 
+pub fn build_create_calendar_req(
+    client: &Client,
+    params: &CaldavParams,
+) -> Result<Request> {
+    let body = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" ?>
+    <mkcol xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CR="urn:ietf:params:xml:ns:carddav" xmlns:CS="http://calendarserver.org/ns/">
+        <set>
+            <prop>
+                <resourcetype><collection /><C:calendar /></resourcetype>
+                <C:supported-calendar-component-set><C:comp name="VEVENT" /></C:supported-calendar-component-set>
+            </prop>
+        </set>
+    </mkcol>"#
+    );
+
+    client
+        .request(Method::from_bytes(b"MKCOL").unwrap(), params.cal_url())
+        .body(body)
+        .header("Content-Type", "text/xml")
+        .basic_auth(&params.user, Some(&params.pass))
+        .build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::tests::make_event;
