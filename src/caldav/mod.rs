@@ -1,5 +1,5 @@
 use crate::{Changes, Event};
-use chrono::{DateTime, Days};
+use chrono::Days;
 use chrono::{NaiveDate, NaiveDateTime};
 use reqwest::{Client, Method, Request, Response, Result};
 use serde::{Deserialize, Serialize};
@@ -9,16 +9,18 @@ use tokio::runtime::Runtime;
 pub struct CaldavParams {
     protocol: String,
     url: String,
+    port: u32,
     user: String,
     pass: String,
     calendar: String,
 }
 
 impl CaldavParams {
-    pub fn new(protocol: &str, url: &str, user: &str, pass: &str, calendar: &str) -> CaldavParams {
+    pub fn new(protocol: &str, url: &str, port: u32, user: &str, pass: &str, calendar: &str) -> CaldavParams {
         CaldavParams {
             protocol: String::from(protocol),
             url: String::from(url),
+            port,
             user: String::from(user),
             pass: String::from(pass),
             calendar: String::from(calendar),
@@ -27,15 +29,15 @@ impl CaldavParams {
 
     pub fn cal_url(&self) -> String {
         format!(
-            "{}://{}/{}/{}/",
-            self.protocol, self.url, self.user, self.calendar
+            "{}://{}:{}/{}/{}/",
+            self.protocol, self.url, self.port, self.user, self.calendar
         )
     }
 
     pub fn event_url(&self, event_uid: &str) -> String {
         format!(
-            "{}://{}/{}/{}/{}.ics",
-            self.protocol, self.url, self.user, self.calendar, event_uid
+            "{}://{}:{}/{}/{}/{}.ics",
+            self.protocol, self.url, self.port, self.user, self.calendar, event_uid
         )
     }
 }
@@ -45,6 +47,7 @@ impl ::std::default::Default for CaldavParams {
         Self {
             protocol: String::from("https"),
             url: String::from("example.com"),
+            port: 80,
             user: String::from("user"),
             pass: String::from("pass"),
             calendar: String::from("cal"),
@@ -114,7 +117,7 @@ pub fn build_list_req(
     );
 
     client
-        .request(Method::from_bytes(b"REPORT").unwrap(), params.cal_url())
+        .request(Method::from_bytes(b"GET").unwrap(), params.cal_url())
         .body(body)
         .header("Content-Type", "text/xml")
         .header("Depth", "1")
@@ -133,7 +136,6 @@ pub fn build_delete_req(client: &Client, params: &CaldavParams, event_id: &str) 
         .build()
 }
 
-use serde_xml_rs;
 
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -157,33 +159,32 @@ struct XMLPropstat {
 struct XMLProp {
     getetag: String,
     #[serde(rename = "calendar-data")]
-    calendarData: String,
+    calendar_data: String,
 }
 
+/**
+ * Takes an ical string and parses it to Events.
+ */
 fn parse_event_list(
-    xml: &str
+    event_list_str: &str
 ) -> Vec<Event> {
-    /* Takes a caldav XML string and parses it to Events.
-     */
-    let xml: XMLMultiStatus = serde_xml_rs::from_str(&xml).unwrap();
-    let mut list= Vec::new();
-    match xml.response.as_ref() {
-        Some(response) => {
-            for eventData in response {
-                let event = parse_event(eventData.propstat.prop.calendarData.as_ref());
-                list.push(event);
-            }
-            list
-        },
-        None => Vec::new()
+
+    let mut event_list= Vec::new();
+
+    let event_list_str = event_list_str.split_inclusive("BEGIN:VEVENT");
+    
+    for event_str in event_list_str {
+        if event_str.contains("END:VEVENT") {
+            let event = parse_event(event_str);
+            event_list.push(event);
+        }
     }
+    event_list
 }
 
 use ical;
-use std::borrow::Borrow;
-use std::io::BufReader;
+use std::collections::HashMap;
 
-use std::fs::File;
 
 fn parse_event(
     event: &str
@@ -197,7 +198,7 @@ fn parse_event(
     let mut end_datetime = None;
     let mut title = Some(String::new());
     let mut description = Some(String::new());
-    let mut changes = Some(Changes::Normal);
+    let changes = Some(Changes::Normal);
     let mut studio = Some("TODO".to_string());
     let mut category = Some("TODO".to_string());
     let mut branch = Some("TODO".to_string());
@@ -206,7 +207,7 @@ fn parse_event(
 
     for property in properties {
         let property = property.unwrap();
-        let mut property_value = property.value.unwrap();
+        let property_value = property.value.unwrap();
 
         match property.name.as_str() {
             "DTSTART" => start_datetime = {
@@ -221,14 +222,14 @@ fn parse_event(
                 Some(NaiveDateTime::parse_from_str(&property_value, "%Y%m%dT%H%M%SZ").unwrap().and_utc())
             },
             "LOCATION" => {
-                let mut split = property_value.split(", ");
-                studio = split.next().map(String::from);
-                branch = split.next().map(String::from);
+                let split = property_value.split_at(property_value.find("\\, ").unwrap());
+                studio = Some(String::from(split.0));
+                branch = Some(String::from(&split.1[3..]));
             },
             "DESCRIPTION" => {
-                let mut split = property_value.split("\\n");
-                category = split.next().map(String::from);
-                description = split.next().map(String::from);
+                let split = property_value.split_at(property_value.find("\\n").unwrap());
+                category = Some(String::from(split.0));
+                description = Some(String::from(&split.1[2..]));
             },
             _ => (),
         }
@@ -251,24 +252,61 @@ fn parse_event(
 pub fn list_events_by_date(
     rt: &Runtime,
     client: &Client,
-    caldav_params: CaldavParams,
+    caldav_params: &CaldavParams,
     date: NaiveDate,
-) -> Vec<String> {
+) -> Vec<Event> {
+    let req = build_list_req(client, caldav_params, date).unwrap();
     let response = run_call(
         rt,
-        &client,
-        build_list_req(client, &caldav_params, date).unwrap(),
+        client,
+        req,
     )
     .unwrap();
     let text = rt.block_on(response.text()).unwrap();
-    println!("BEEP01 {}", &text);
-    let xml: XMLMultiStatus = serde_xml_rs::from_str(&text).unwrap();
-    println!("BEEP02 {}", &xml.response.unwrap()[0].propstat.prop.calendarData);
 
-    let event_ids = Vec::<String>::new();
+    
 
+    parse_event_list(&text)
+}
 
-    event_ids
+pub fn escape_ical_value(value: &str) -> String {
+    let mut escaped = String::from("");
+    for character in value.chars() {
+        let escape_map: HashMap<char, &str> = [
+            (',', "\\,"),
+            (';', "\\;"),
+            ('\\', "\\\\"),
+            ('\n', "\\n"),
+        ].iter().cloned().collect();
+        if escape_map.contains_key(&character) {
+            escaped.push_str(escape_map[&character]);
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
+}
+
+pub fn build_create_calendar_req(
+    client: &Client,
+    params: &CaldavParams,
+) -> Result<Request> {
+    let body = r#"<?xml version="1.0" encoding="UTF-8" ?>
+    <mkcol xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CR="urn:ietf:params:xml:ns:carddav" xmlns:CS="http://calendarserver.org/ns/">
+        <set>
+            <prop>
+                <resourcetype><collection /><C:calendar /></resourcetype>
+                <C:supported-calendar-component-set><C:comp name="VEVENT" /></C:supported-calendar-component-set>
+            </prop>
+        </set>
+    </mkcol>"#.to_string();
+
+    client
+        .request(Method::from_bytes(b"MKCOL").unwrap(), params.cal_url())
+        .body(body)
+        .header("Content-Type", "text/xml")
+        .basic_auth(&params.user, Some(&params.pass))
+        .build()
 }
 
 #[cfg(test)]
@@ -283,7 +321,7 @@ mod tests {
         let mut event = make_event(true);
         let protocol = "https";
         let url = "example.com";
-        let params = CaldavParams::new(protocol, url, "user", "pass", "cal");
+        let params = CaldavParams::new(protocol, url, 80, "user", "pass", "cal");
         let request = build_create_req(&client, &params, event.borrow_mut()).unwrap();
 
         let body = 
@@ -296,13 +334,14 @@ mod tests {
             DTSTART:20000205T100000Z\n\
             DTEND:20000205T140000Z\n\
             SUMMARY:atitle\n\
-            DESCRIPTION:adescription\n\
+            DESCRIPTION:acategory\\nadescription\n\
+            LOCATION:astudio\\, abranch\n\
             END:VEVENT\n\
             END:VCALENDAR";
         assert_eq!(request.method(), Method::PUT);
         assert_eq!(
             request.url().as_str(),
-            "https://example.com/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
+            "https://example.com:80/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
         );
         assert_eq!(request.body().unwrap().as_bytes().unwrap(), body.as_bytes());
     }
@@ -313,13 +352,13 @@ mod tests {
         let event = make_event(true);
         let protocol = "https";
         let url = "example.com";
-        let params = CaldavParams::new(protocol, url, "user", "pass", "cal");
+        let params = CaldavParams::new(protocol, url, 80, "user", "pass", "cal");
         let request = build_delete_req(&client, &params, &event.uid.unwrap()).unwrap();
 
         assert_eq!(request.method(), Method::DELETE);
         assert_eq!(
             request.url().as_str(),
-            "https://example.com/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
+            "https://example.com:80/user/cal/e110d27a-1513-40c1-8e8a-db8f50aac1d2.ics"
         );
         assert!(request.body().is_none());
     }
@@ -329,29 +368,31 @@ mod tests {
         let client = Client::new();
         let protocol = "https";
         let url = "example.com";
-        let params = CaldavParams::new(protocol, url, "user", "pass", "cal");
+        let params = CaldavParams::new(protocol, url, 80, "user", "pass", "cal");
         let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
         let request = build_list_req(&client, &params, date).unwrap();
 
-        assert_eq!(request.method().as_str(), "REPORT");
-        assert_eq!(request.url().as_str(), "https://example.com/user/cal/");
+        assert_eq!(request.method().as_str(), "GET");
+        assert_eq!(request.url().as_str(), "https://example.com:80/user/cal/");
     }
 
     #[test]
     #[ignore]
     fn test_list_events_by_date() {
         let client = Client::new();
-        let caldav_params = CaldavParams::new("http", "127.0.0.1:5232", "user", "pass", "cal");
+        let caldav_params = CaldavParams::new("http", "127.0.0.1", 5323, "user", "pass", "cal");
         let rt = Runtime::new().unwrap();
         let date = NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
-        list_events_by_date(&rt, &client, caldav_params, date);
+        let event_list = list_events_by_date(&rt, &client, &caldav_params, date);
+        let expected_event_list = Vec::new(); // TODO
+        assert_eq!(event_list, expected_event_list);
     }
 
     #[test]
     fn test_parse_event_list() {
         let mut expected_event_list = Vec::new();
         expected_event_list.push(make_event(true));
-        let xml = "<multistatus xmlns=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><response><href>/user/cal/583ac737-44c2-4655-a8a7-048519741f54.ics</href><propstat><prop><getetag>\"85f0997add25f4f9bb682115f6911f0288c6e1988408809e62fcf1ba4d288503\"</getetag><C:calendar-data>BEGIN:VCALENDAR
+        let event_list_str = "BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Ycal//Ycal//EN
 BEGIN:VEVENT
@@ -360,14 +401,22 @@ DTSTART:20000205T050000Z
 DTEND:20000205T090000Z
 DESCRIPTION:acategory\\nadescription
 DTSTAMP:20000205T160000Z
-LOCATION:astudio, abranch
+LOCATION:astudio\\, abranch
 SUMMARY:atitle
 END:VEVENT
-END:VCALENDAR
-</C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>
-";
+END:VCALENDAR";
 
-        let event_list = parse_event_list(xml);
+        let event_list = parse_event_list(event_list_str);
         assert_eq!(event_list, expected_event_list);
     }
+
+    #[test]
+    fn test_escape_ical_value() {
+        let value = "New York City, NY; USA\\ \nnewline";
+        assert_eq!(
+            escape_ical_value(value),
+            "New York City\\, NY\\; USA\\\\ \\nnewline"
+        );
+    }
 }
+

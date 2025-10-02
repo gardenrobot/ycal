@@ -1,0 +1,6 @@
+[auth]
+type = none
+htpasswd_filename = /etc/radicale/users
+
+[storage]
+filesystem_folder = /var/lib/radicale

@@ -1,8 +1,7 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use caldav::CaldavParams;
 use chrono::{
-    format::{DelayedFormat, StrftimeItems},
-    DateTime, NaiveDate, NaiveDateTime, Utc,
+    format::{DelayedFormat, StrftimeItems}, DateTime, NaiveDate, NaiveDateTime, Utc
 };
 use chrono_tz::{self, Tz};
 use regex::Regex;
@@ -12,7 +11,7 @@ use std::{borrow::BorrowMut, error::Error};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-use crate::caldav::build_create_req;
+use crate::caldav::{build_create_calendar_req, build_create_req, build_delete_req, escape_ical_value, list_events_by_date};
 
 pub mod caldav;
 
@@ -61,19 +60,16 @@ impl Event {
             studio: String::from(studio),
             category: String::from(category),
             branch: String::from(branch),
-            uid: match uid {
-                Some(x) => Some(String::from(x)),
-                None => None,
-            },
+            uid: uid,
             stamp,
         }
     }
 
-    pub fn populate(&mut self) -> () {
-        if self.uid == None {
-            self.uid = Some(String::from(format!("{}", Uuid::new_v4())));
+    pub fn populate(&mut self) {
+        if self.uid.is_none() {
+            self.uid = Some(format!("{}", Uuid::new_v4()));
         }
-        if self.stamp == None {
+        if self.stamp.is_none() {
             self.stamp = Some(Utc::now());
         }
     }
@@ -86,7 +82,10 @@ impl Event {
         let dtend = tz_dt_to_ical(self.end_datetime);
         let dtstamp = utc_dt_to_ical(self.stamp.unwrap());
         let summary = &self.title;
+        let category = &self.category;
         let description = &self.description;
+        let studio = &self.studio;
+        let branch = &self.branch;
 
         format!(
             "BEGIN:VCALENDAR\n\
@@ -99,9 +98,12 @@ impl Event {
             DTEND:{}\n\
             SUMMARY:{}\n\
             DESCRIPTION:{}\n\
+            LOCATION:{}\n\
             END:VEVENT\n\
             END:VCALENDAR",
-            uid, dtstamp, dtstart, dtend, summary, description,
+            uid, dtstamp, dtstart, dtend, summary,
+            escape_ical_value(&format!("{category}\n{description}")),
+            escape_ical_value(&format!("{studio}, {branch}")),
         )
     }
 }
@@ -160,19 +162,19 @@ pub fn parse_event(json: &Value) -> Result<Event, Box<dyn Error>> {
 
     let format = "%A, %B %d, %Y %I:%M%p";
     let timezone = TIMEZONE;
-    let start_datetime = NaiveDateTime::parse_from_str(&format!("{date} {start_time}"), &format)
+    let start_datetime = NaiveDateTime::parse_from_str(&format!("{date} {start_time}"), format)
         .unwrap()
         .and_local_timezone(timezone)
         .single()
         .unwrap();
-    let end_datetime = NaiveDateTime::parse_from_str(&format!("{date} {end_time}"), &format)
+    let end_datetime = NaiveDateTime::parse_from_str(&format!("{date} {end_time}"), format)
         .unwrap()
         .and_local_timezone(timezone)
         .single()
         .unwrap();
 
     let title = json[2].as_str().unwrap_or_default();
-    let changes = detect_changes(&json);
+    let changes = detect_changes(json);
     let studio = json[4].as_str().unwrap_or_default();
     let category = json[5].as_str().unwrap_or_default();
     let branch = json[8].as_str().unwrap_or_default();
@@ -185,7 +187,7 @@ pub fn parse_event(json: &Value) -> Result<Event, Box<dyn Error>> {
 
     let studio = match studio.strip_suffix("&nbsp;") {
         Some(x) => x,
-        None => &studio,
+        None => studio,
     };
 
     Ok(Event::new(
@@ -219,9 +221,14 @@ fn detect_changes(json: &Value) -> Changes {
     }
 }
 
-/// Take a date, retrieve
-pub fn process_date(date: NaiveDate, caldav_params: CaldavParams) -> () {
+/**
+ * For a given date, retrieve the date's events. Delete caldav events in that day. Repopulate caldav.
+ */
+pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) {
     let rt = Runtime::new().unwrap();
+    let client = Client::new();
+
+    // Fetch Y events
     let schedule = fetch_schedule(date);
     let schedule = rt.block_on(schedule).unwrap();
     let schedule = parse_jquery(&schedule).unwrap();
@@ -232,11 +239,34 @@ pub fn process_date(date: NaiveDate, caldav_params: CaldavParams) -> () {
         event_list.push(event);
     }
 
-    let client = Client::new();
+    // Create calendar if it doesn't exist
+    let request = build_create_calendar_req(&client, caldav_params)
+        .expect("Error build create calendar request");
+    println!("Creating calendar {}", &caldav_params.cal_url());
+    let response = caldav::run_call(&rt, &client, request).unwrap();
+    let status = response.status();
+    println!("Response: {status}");
+
+    // Delete caldav events
+    let events_to_delete = list_events_by_date(&rt, &client, caldav_params, date);
+    for event in events_to_delete {
+        if event.start_datetime.date_naive() == date {
+            let event_id = &event.uid.unwrap();
+            let request = build_delete_req(&client, caldav_params, event_id)
+                .expect("Error build delete request");
+            println!("Deleting event {event_id}");
+            let response = caldav::run_call(&rt, &client, request).unwrap();
+            let status = response.status();
+            println!("Response: {status}");
+        }
+    }
+
+    // Create caldav events
     for mut event in event_list {
         println!("Pushing event");
-        let request = build_create_req(&client, &caldav_params, event.borrow_mut())
+        let request = build_create_req(&client, caldav_params, event.borrow_mut())
             .expect("Error building create request");
+        println!("Creating event");
         let response = caldav::run_call(&rt, &client, request).unwrap();
         let status = response.status();
         println!("Response: {status}");
@@ -326,6 +356,14 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn test_process_date() {
+        let caldav_params = CaldavParams::new("http", "127.0.0.1", 5232, "user", "pass", "cal");
+        let date = NaiveDate::parse_from_str("2025-01-01", "%Y-%m-%d").expect("Error parsing date");
+        process_date(date, &caldav_params);
+    }
+
+    #[test]
     fn test_detect_changes_subbed() {
         let json: Value = from_str(r#"[
             "", "", "",
@@ -383,7 +421,8 @@ mod tests {
             DTSTART:20000205T100000Z\n\
             DTEND:20000205T140000Z\n\
             SUMMARY:atitle\n\
-            DESCRIPTION:adescription\n\
+            DESCRIPTION:acategory\\nadescription\n\
+            LOCATION:astudio\\, abranch\n\
             END:VEVENT\n\
             END:VCALENDAR"
         );
