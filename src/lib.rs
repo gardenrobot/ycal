@@ -1,7 +1,7 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use caldav::CaldavParams;
 use chrono::{
-    format::{DelayedFormat, StrftimeItems}, DateTime, Days, NaiveDate, NaiveDateTime, Utc
+    format::{DelayedFormat, StrftimeItems}, DateTime, NaiveDate, NaiveDateTime, Utc
 };
 use chrono_tz::{self, Tz};
 use regex::Regex;
@@ -60,19 +60,16 @@ impl Event {
             studio: String::from(studio),
             category: String::from(category),
             branch: String::from(branch),
-            uid: match uid {
-                Some(x) => Some(String::from(x)),
-                None => None,
-            },
+            uid: uid,
             stamp,
         }
     }
 
-    pub fn populate(&mut self) -> () {
-        if self.uid == None {
-            self.uid = Some(String::from(format!("{}", Uuid::new_v4())));
+    pub fn populate(&mut self) {
+        if self.uid.is_none() {
+            self.uid = Some(format!("{}", Uuid::new_v4()));
         }
-        if self.stamp == None {
+        if self.stamp.is_none() {
             self.stamp = Some(Utc::now());
         }
     }
@@ -165,19 +162,19 @@ pub fn parse_event(json: &Value) -> Result<Event, Box<dyn Error>> {
 
     let format = "%A, %B %d, %Y %I:%M%p";
     let timezone = TIMEZONE;
-    let start_datetime = NaiveDateTime::parse_from_str(&format!("{date} {start_time}"), &format)
+    let start_datetime = NaiveDateTime::parse_from_str(&format!("{date} {start_time}"), format)
         .unwrap()
         .and_local_timezone(timezone)
         .single()
         .unwrap();
-    let end_datetime = NaiveDateTime::parse_from_str(&format!("{date} {end_time}"), &format)
+    let end_datetime = NaiveDateTime::parse_from_str(&format!("{date} {end_time}"), format)
         .unwrap()
         .and_local_timezone(timezone)
         .single()
         .unwrap();
 
     let title = json[2].as_str().unwrap_or_default();
-    let changes = detect_changes(&json);
+    let changes = detect_changes(json);
     let studio = json[4].as_str().unwrap_or_default();
     let category = json[5].as_str().unwrap_or_default();
     let branch = json[8].as_str().unwrap_or_default();
@@ -190,7 +187,7 @@ pub fn parse_event(json: &Value) -> Result<Event, Box<dyn Error>> {
 
     let studio = match studio.strip_suffix("&nbsp;") {
         Some(x) => x,
-        None => &studio,
+        None => studio,
     };
 
     Ok(Event::new(
@@ -227,7 +224,7 @@ fn detect_changes(json: &Value) -> Changes {
 /**
  * For a given date, retrieve the date's events. Delete caldav events in that day. Repopulate caldav.
  */
-pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) -> () {
+pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) {
     let rt = Runtime::new().unwrap();
     let client = Client::new();
 
@@ -243,7 +240,7 @@ pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) -> () {
     }
 
     // Create calendar if it doesn't exist
-    let request = build_create_calendar_req(&client, &caldav_params)
+    let request = build_create_calendar_req(&client, caldav_params)
         .expect("Error build create calendar request");
     println!("Creating calendar {}", &caldav_params.cal_url());
     let response = caldav::run_call(&rt, &client, request).unwrap();
@@ -251,7 +248,7 @@ pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) -> () {
     println!("Response: {status}");
 
     // Delete caldav events
-    let events_to_delete = list_events_by_date(&rt, &client, &caldav_params, date);
+    let events_to_delete = list_events_by_date(&rt, &client, caldav_params, date);
     for event in events_to_delete {
         if event.start_datetime.date_naive() == date {
             let event_id = &event.uid.unwrap();
@@ -267,7 +264,7 @@ pub fn process_date(date: NaiveDate, caldav_params: &CaldavParams) -> () {
     // Create caldav events
     for mut event in event_list {
         println!("Pushing event");
-        let request = build_create_req(&client, &caldav_params, event.borrow_mut())
+        let request = build_create_req(&client, caldav_params, event.borrow_mut())
             .expect("Error building create request");
         println!("Creating event");
         let response = caldav::run_call(&rt, &client, request).unwrap();

@@ -2,7 +2,6 @@ use std::{env, process};
 use ycal::{caldav::list_events_by_date, process_date};
 
 use chrono::NaiveDate;
-use confy;
 use reqwest::Client;
 use tokio::runtime::Runtime;
 

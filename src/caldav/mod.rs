@@ -1,5 +1,5 @@
 use crate::{Changes, Event};
-use chrono::{DateTime, Days};
+use chrono::Days;
 use chrono::{NaiveDate, NaiveDateTime};
 use reqwest::{Client, Method, Request, Response, Result};
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ impl CaldavParams {
         CaldavParams {
             protocol: String::from(protocol),
             url: String::from(url),
-            port: port.clone(),
+            port,
             user: String::from(user),
             pass: String::from(pass),
             calendar: String::from(calendar),
@@ -136,7 +136,6 @@ pub fn build_delete_req(client: &Client, params: &CaldavParams, event_id: &str) 
         .build()
 }
 
-use serde_xml_rs;
 
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -160,7 +159,7 @@ struct XMLPropstat {
 struct XMLProp {
     getetag: String,
     #[serde(rename = "calendar-data")]
-    calendarData: String,
+    calendar_data: String,
 }
 
 /**
@@ -184,11 +183,8 @@ fn parse_event_list(
 }
 
 use ical;
-use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::io::BufReader;
 
-use std::fs::File;
 
 fn parse_event(
     event: &str
@@ -202,7 +198,7 @@ fn parse_event(
     let mut end_datetime = None;
     let mut title = Some(String::new());
     let mut description = Some(String::new());
-    let mut changes = Some(Changes::Normal);
+    let changes = Some(Changes::Normal);
     let mut studio = Some("TODO".to_string());
     let mut category = Some("TODO".to_string());
     let mut branch = Some("TODO".to_string());
@@ -211,7 +207,7 @@ fn parse_event(
 
     for property in properties {
         let property = property.unwrap();
-        let mut property_value = property.value.unwrap();
+        let property_value = property.value.unwrap();
 
         match property.name.as_str() {
             "DTSTART" => start_datetime = {
@@ -259,23 +255,23 @@ pub fn list_events_by_date(
     caldav_params: &CaldavParams,
     date: NaiveDate,
 ) -> Vec<Event> {
-    let req = build_list_req(client, &caldav_params, date).unwrap();
+    let req = build_list_req(client, caldav_params, date).unwrap();
     let response = run_call(
         rt,
-        &client,
+        client,
         req,
     )
     .unwrap();
     let text = rt.block_on(response.text()).unwrap();
 
-    let events = parse_event_list(&text);
+    
 
-    events
+    parse_event_list(&text)
 }
 
 pub fn escape_ical_value(value: &str) -> String {
     let mut escaped = String::from("");
-    for (index, character) in value.chars().enumerate() {
+    for character in value.chars() {
         let escape_map: HashMap<char, &str> = [
             (',', "\\,"),
             (';', "\\;"),
@@ -295,8 +291,7 @@ pub fn build_create_calendar_req(
     client: &Client,
     params: &CaldavParams,
 ) -> Result<Request> {
-    let body = format!(
-        r#"<?xml version="1.0" encoding="UTF-8" ?>
+    let body = r#"<?xml version="1.0" encoding="UTF-8" ?>
     <mkcol xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CR="urn:ietf:params:xml:ns:carddav" xmlns:CS="http://calendarserver.org/ns/">
         <set>
             <prop>
@@ -304,8 +299,7 @@ pub fn build_create_calendar_req(
                 <C:supported-calendar-component-set><C:comp name="VEVENT" /></C:supported-calendar-component-set>
             </prop>
         </set>
-    </mkcol>"#
-    );
+    </mkcol>"#.to_string();
 
     client
         .request(Method::from_bytes(b"MKCOL").unwrap(), params.cal_url())
@@ -390,7 +384,7 @@ mod tests {
         let rt = Runtime::new().unwrap();
         let date = NaiveDate::from_ymd_opt(2025, 7, 1).unwrap();
         let event_list = list_events_by_date(&rt, &client, &caldav_params, date);
-        let mut expected_event_list = Vec::new(); // TODO
+        let expected_event_list = Vec::new(); // TODO
         assert_eq!(event_list, expected_event_list);
     }
 
