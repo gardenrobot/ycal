@@ -1,6 +1,6 @@
 #!/bin/bash
 
-exec=target/debug/ycal
+exec=/app/ycal
 
 start_date=$(date +%F)
 days_before=7
